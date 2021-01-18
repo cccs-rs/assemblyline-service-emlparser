@@ -29,16 +29,27 @@ class EmlParser(ServiceBase):
             serial = obj.isoformat()
             return serial
 
+    def validate_urls(self, body):
+        changes_made = False
+        body = body.replace("=\r\n", "")
+        invalid_chars = "[]()"
+        for u in eml_parser.regex.url_regex_simple.findall(body):
+            if any(c in u for c in invalid_chars):
+                changes_made = True
+                replacement = u
+                for c in invalid_chars:
+                    replacement = replacement.replace(c, " ")
+                body = body.replace(u, replacement, 1)
+        return body, changes_made
+
     def execute(self, request):
         parser = eml_parser.eml_parser.EmlParser(include_raw_body=True, include_attachment_data=True)
 
         # Validate URLs in sample, strip out [] if found
-        invalid_chars = "[]"
         content_str = request.file_contents.decode(errors="ignore")
-        for u in eml_parser.regex.url_regex_simple.findall(content_str):
-            if any(c in u for c in invalid_chars):
-                replacement = u.strip(invalid_chars)
-                content_str = content_str.replace(u, replacement, 1)
+        content_str, retry = self.validate_urls(content_str)
+        while retry:
+            content_str, retry = self.validate_urls(content_str)
         parsed_eml = parser.decode_email_bytes(content_str.encode())
 
         result = Result()
@@ -74,7 +85,7 @@ class EmlParser(ServiceBase):
 
             # Add Message ID to body and tags
             if 'message-id' in header['header']:
-                kv_section.add_tag("network.email.msg_id",  header['header']['message-id'][0].strip())
+                kv_section.add_tag("network.email.msg_id", header['header']['message-id'][0].strip())
 
             # Add Tags for received IPs
             if 'received_ip' in header:
@@ -113,7 +124,8 @@ class EmlParser(ServiceBase):
                         f.write(base64.b64decode(attachment['raw']))
                         os.close(fd)
                     request.add_extracted(path, attachment['filename'], "Attachment ")
-                ResultSection('Extracted Attachments:', body="\n".join([x['filename'] for x in parsed_eml['attachment']]),
+                ResultSection('Extracted Attachments:',
+                              body="\n".join([x['filename'] for x in parsed_eml['attachment']]),
                               parent=result)
 
             if request.get_param('save_emlparser_output'):
