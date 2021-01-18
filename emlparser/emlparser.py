@@ -29,7 +29,8 @@ class EmlParser(ServiceBase):
             serial = obj.isoformat()
             return serial
 
-    def validate_urls(self, body):
+    @staticmethod
+    def validate_urls(body):
         changes_made = False
         body = body.replace("=\r\n", "")
         invalid_chars = "[]()"
